@@ -1,0 +1,11 @@
+{
+    "protoc": {
+        "options": [
+            "--proto_path=proto/",
+        ]
+    },
+    "terminal.integrated.env.linux": {
+        "RUST_LOG": "info",
+        "FLIGHTMNGR_URL": "grpc://localhost:50051",
+    }
+}
