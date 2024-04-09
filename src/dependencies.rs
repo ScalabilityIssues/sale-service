@@ -1,28 +1,64 @@
-use crate::error::Result;
-use crate::proto::flightmngr::{self, flights_client::FlightsClient, ListFlightsRequest};
 use tonic::transport::Channel;
+
+use crate::config::DependencyConfig;
+use crate::error::Result;
+use crate::proto::flightmngr::Flight;
+use crate::proto::flightmngr::{self, flights_client::FlightsClient};
+use crate::proto::priceest::price_estimation_client::PriceEstimationClient;
+use crate::proto::priceest::{self, EstimatePriceRequest, FlightDetails};
 
 #[derive(Clone, Debug)]
 pub struct Dependencies {
     pub flights: FlightsClient<Channel>,
+    pub priceest: PriceEstimationClient<Channel>,
+}
+
+impl From<Flight> for FlightDetails {
+    fn from(value: Flight) -> Self {
+        Self {
+            destination: value.destination_id,
+            source: value.origin_id,
+            departure_time: value.departure_time,
+            arrival_time: value.arrival_time,
+        }
+    }
 }
 
 impl Dependencies {
-    pub fn new(flightmngr_channel: Channel) -> Self {
-        Self {
+    pub fn new(
+        dependency_urls: DependencyConfig,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>> {
+        let DependencyConfig {
+            flightmngr_url,
+            priceest_url,
+            ..
+        } = dependency_urls;
+
+        let flightmngr_channel = Channel::builder(flightmngr_url.try_into()?).connect_lazy();
+        let priceest_channel = Channel::builder(priceest_url.try_into()?).connect_lazy();
+
+        Ok(Self {
             flights: FlightsClient::new(flightmngr_channel),
-        }
+            priceest: PriceEstimationClient::new(priceest_channel),
+        })
     }
 
-    pub async fn list_flights(&self) -> Result<Vec<flightmngr::Flight>> {
-        let r = self
-            .flights
-            .clone()
-            .list_flights(ListFlightsRequest {
-                include_cancelled: true,
-            })
-            .await?;
-
+    pub async fn search_flights(
+        &self,
+        request: flightmngr::SearchFlightsRequest,
+    ) -> Result<Vec<flightmngr::Flight>> {
+        let r = self.flights.clone().search_flights(request).await?;
         Ok(r.into_inner().flights)
+    }
+
+    pub async fn get_price_estimation(
+        &self,
+        flight: flightmngr::Flight,
+    ) -> Result<priceest::PricePrediction> {
+        let request = EstimatePriceRequest {
+            flight: Some(flight.into()),
+        };
+        let r = self.priceest.clone().estimate_price(request).await?;
+        Ok(r.into_inner())
     }
 }

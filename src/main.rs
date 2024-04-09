@@ -6,7 +6,7 @@ use tokio::{
     signal::unix::{signal, SignalKind},
 };
 use tokio_stream::wrappers::TcpListenerStream;
-use tonic::transport::{Channel, Server};
+use tonic::transport::Server;
 use tower_http::trace;
 use tracing::Level;
 
@@ -14,9 +14,9 @@ use crate::{dependencies::Dependencies, sale::SaleApp};
 
 mod config;
 mod dependencies;
+mod error;
 pub mod proto;
 mod sale;
-mod error;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,12 +25,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let opt = envy::from_env::<config::Options>()?;
+    let deps_config = envy::from_env::<config::DependencyConfig>()?;
 
     tracing::info!("Loaded configuration: {:?}", opt);
 
-    // define flightmngr grpc client
-    let channel = Channel::builder(opt.flightmngr_url.try_into()?)
-        .connect_lazy();
+    let deps = Dependencies::new(deps_config)?;
 
     // bind server socket
     let addr = SocketAddr::new(opt.ip, opt.port);
@@ -44,7 +43,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Server::builder()
         // configure the server
-        .timeout(std::time::Duration::from_secs(10))
         .layer(
             trace::TraceLayer::new_for_grpc()
                 .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
@@ -52,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         // enable grpc reflection
         .add_service(reflection)
-        .add_service(SaleServer::new(SaleApp::new(Dependencies::new(channel))))
+        .add_service(SaleServer::new(SaleApp::new(deps)))
         // serve
         .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async {
             let _ = signal(SignalKind::terminate()).unwrap().recv().await;

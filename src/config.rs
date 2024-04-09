@@ -28,6 +28,10 @@ pub struct Options {
     pub ip: IpAddr,
     #[serde(default = "default_port")]
     pub port: u16,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DependencyConfig{
     #[serde(default = "default_flightmngr_url")]
     pub flightmngr_url: String,
     #[serde(default = "default_priceest_url")]
