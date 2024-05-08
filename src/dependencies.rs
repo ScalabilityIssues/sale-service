@@ -1,11 +1,12 @@
 use tonic::transport::Channel;
 
 use crate::config::DependencyConfig;
-use crate::error::Result;
+use crate::error::{ApplicationError, Result};
 use crate::proto::flightmngr::Flight;
 use crate::proto::flightmngr::{self, flights_client::FlightsClient};
+use crate::proto::google::r#type::Money;
 use crate::proto::priceest::price_estimation_client::PriceEstimationClient;
-use crate::proto::priceest::{self, EstimatePriceRequest, FlightDetails};
+use crate::proto::priceest::{EstimatePriceRequest, FlightDetails};
 
 #[derive(Clone, Debug)]
 pub struct Dependencies {
@@ -51,14 +52,16 @@ impl Dependencies {
         Ok(r.into_inner().flights)
     }
 
-    pub async fn get_price_estimation(
-        &self,
-        flight: flightmngr::Flight,
-    ) -> Result<priceest::PricePrediction> {
+    pub async fn get_price_estimation(&self, flight: flightmngr::Flight) -> Result<Money> {
         let request = EstimatePriceRequest {
             flight: Some(flight.into()),
         };
         let r = self.priceest.clone().estimate_price(request).await?;
-        Ok(r.into_inner())
+
+        r.into_inner()
+            .price
+            .ok_or(ApplicationError::unexpected_error(
+                "no price found in response from priceestimator",
+            ))
     }
 }

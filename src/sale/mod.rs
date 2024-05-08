@@ -1,8 +1,10 @@
 use crate::error::ApplicationError;
 use crate::proto::flightmngr::{Flight, SearchFlightsRequest};
-use crate::proto::priceest::PricePrediction;
 use crate::proto::salesvc::sale_server::Sale;
-use crate::proto::salesvc::{Money, Offer, SearchOffersRequest, SearchOffersResponse};
+use crate::proto::salesvc::{
+    Offer, PurchaseOfferRequest, PurchaseOfferResponse, SearchOffersRequest,
+    SearchOffersResponse,
+};
 use tonic::{Request, Response, Status};
 
 use crate::dependencies::Dependencies;
@@ -21,17 +23,11 @@ impl From<SearchOffersRequest> for SearchFlightsRequest {
     }
 }
 
-impl From<PricePrediction> for Money {
-    fn from(value: PricePrediction) -> Self {
-        todo!()
-    }
-}
-
 async fn create_offer(flight: Flight, deps: Dependencies) -> Result<Offer, ApplicationError> {
     let price = deps.get_price_estimation(flight.clone()).await?;
     Ok(Offer {
         flight: Some(flight),
-        price: Some(price.into()),
+        price: Some(price),
         token: "token".to_string(), // TODO
     })
 }
@@ -54,6 +50,13 @@ impl Sale for SaleApp {
         .collect::<Result<_, _>>()?;
 
         Ok(Response::new(SearchOffersResponse { offers }))
+    }
+
+    async fn purchase_offer(
+        &self,
+        _request: Request<PurchaseOfferRequest>,
+    ) -> Result<Response<PurchaseOfferResponse>, Status> {
+        todo!()
     }
 }
 
