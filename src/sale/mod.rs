@@ -4,8 +4,8 @@ use crate::error::ApplicationError;
 use crate::proto::flightmngr::{Flight, SearchFlightsRequest};
 use crate::proto::salesvc::sale_server::Sale;
 use crate::proto::salesvc::{
-    Offer, PurchaseOfferRequest, PurchaseOfferResponse, SearchOffersRequest, SearchOffersResponse,
-    TokenData,
+    Offer, OfferClaims, PurchaseOfferRequest, PurchaseOfferResponse, SearchOffersRequest,
+    SearchOffersResponse,
 };
 use prost_types::Timestamp;
 use time::{Duration, OffsetDateTime};
@@ -13,11 +13,11 @@ use tonic::{Request, Response, Status};
 
 use crate::dependencies::Dependencies;
 
-use self::tokens::TokenManager;
+use self::tokens::TagManager;
 
 pub struct SaleApp {
     deps: Dependencies,
-    token_manager: TokenManager,
+    token_manager: TagManager,
 }
 
 impl From<SearchOffersRequest> for SearchFlightsRequest {
@@ -32,22 +32,19 @@ impl From<SearchOffersRequest> for SearchFlightsRequest {
 
 async fn create_offer(
     flight: Flight,
-    deps: Dependencies,
+    deps: &Dependencies,
     expiration: i64,
-    tm: &tokens::TokenManager,
+    tm: &tokens::TagManager,
 ) -> Result<Offer, ApplicationError> {
     let price = deps.get_price_estimation(flight.clone()).await?;
     Ok(Offer {
-        token: Some(tm.generate_token(TokenData {
-            flight_id: flight.id.clone(),
-            price: Some(price.clone()),
-            expiration: Some(Timestamp {
-                seconds: expiration,
-                nanos: 0,
-            }),
-        })),
+        tag: tm.generate_tag(&flight.id, &price, expiration),
         flight: Some(flight),
         price: Some(price),
+        expiration: Some(Timestamp {
+            seconds: expiration,
+            nanos: 0,
+        }),
     })
 }
 
@@ -65,7 +62,7 @@ impl Sale for SaleApp {
 
         let offers = futures_util::future::join_all(
             f.into_iter()
-                .map(|f| create_offer(f, self.deps.clone(), exp, &self.token_manager)),
+                .map(|f| create_offer(f, &self.deps, exp, &self.token_manager)),
         )
         .await
         .into_iter()
@@ -79,16 +76,25 @@ impl Sale for SaleApp {
         request: Request<PurchaseOfferRequest>,
     ) -> Result<Response<PurchaseOfferResponse>, Status> {
         let PurchaseOfferRequest {
-            offer: Some(Offer {
-                token: Some(token), ..
-            }),
             data: Some(user_data),
+            offer:
+                Some(OfferClaims {
+                    flight_id,
+                    price: Some(price),
+                    expiration:
+                        Some(Timestamp {
+                            seconds: expiration,
+                            ..
+                        }),
+                }),
+            tag,
         } = request.into_inner()
         else {
             return Err(Status::invalid_argument("invalid request"));
         };
 
-        let TokenData { flight_id, .. } = self.token_manager.verify_token(token)?;
+        self.token_manager
+            .verify_offer(&flight_id, &price, expiration, &tag)?;
 
         let ticket = self.deps.create_ticket(flight_id, user_data).await?;
 
@@ -99,7 +105,7 @@ impl Sale for SaleApp {
 }
 
 impl SaleApp {
-    pub fn new(deps: Dependencies, token_manager: TokenManager) -> Self {
+    pub fn new(deps: Dependencies, token_manager: TagManager) -> Self {
         Self {
             deps,
             token_manager,

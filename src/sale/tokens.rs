@@ -1,43 +1,71 @@
-use std::io::Cursor;
-
 use hmac::{digest::MacError, Hmac, Mac};
-use prost::{DecodeError, Message};
+use prost::DecodeError;
 use sha2::Sha256;
 use thiserror::Error;
+use time::OffsetDateTime;
 
-use crate::proto::salesvc::{Token, TokenData};
+use crate::proto::google::r#type::Money;
 
 pub type HmacSha256 = Hmac<Sha256>;
 pub type Key = Vec<u8>;
 
-pub struct TokenManager {
+pub struct TagManager {
     secret: Key,
 }
 
-impl TokenManager {
+impl TagManager {
     pub fn new(secret: Key) -> Self {
         Self { secret }
     }
 
-    pub fn generate_token(&self, data: TokenData) -> Token {
-        let data = data.encode_to_vec();
-
+    fn build_mac(&self, flight_id: &str, price: &Money, expiration: i64) -> HmacSha256 {
         let mut mac = HmacSha256::new_from_slice(&self.secret).unwrap();
-        mac.update(&data);
-        let result = mac.finalize();
-        let tag = result.into_bytes().to_vec();
 
-        Token { data, tag }
+        mac.update(flight_id.as_bytes());
+        mac.update(&expiration.to_le_bytes());
+
+        let Money {
+            currency_code,
+            units,
+            nanos,
+        } = price;
+
+        mac.update(currency_code.as_bytes());
+        mac.update(&units.to_le_bytes());
+        mac.update(&nanos.to_le_bytes());
+
+        mac
     }
 
-    pub fn verify_token(&self, token: Token) -> Result<TokenData, TokenVerifyError> {
-        let mut mac = HmacSha256::new_from_slice(&self.secret).unwrap();
-        mac.update(&token.data);
-        mac.verify_slice(&token.tag)?;
+    pub fn generate_tag(&self, flight_id: &str, price: &Money, expiration: i64) -> Vec<u8> {
+        let mac = self.build_mac(flight_id, price, expiration);
 
-        let data = TokenData::decode(Cursor::new(token.data))?;
+        let result = mac.finalize();
 
-        Ok(data)
+        result.into_bytes().to_vec()
+    }
+
+    pub fn verify_offer(
+        &self,
+        flight_id: &str,
+        price: &Money,
+        expiration: i64,
+        tag: &[u8],
+    ) -> Result<(), TokenVerifyError> {
+        let mac = self.build_mac(flight_id, price, expiration);
+
+        mac.verify_slice(tag)?;
+        Self::verify_expired(expiration)?;
+
+        Ok(())
+    }
+
+    fn verify_expired(expiration: i64) -> Result<(), TokenVerifyError> {
+        if expiration < OffsetDateTime::now_utc().unix_timestamp() {
+            return Err(TokenVerifyError::Expired);
+        }
+
+        Ok(())
     }
 }
 
@@ -48,6 +76,9 @@ pub enum TokenVerifyError {
 
     #[error("Invalid token data: {0}")]
     InvalidData(#[from] DecodeError),
+
+    #[error("Token is expired")]
+    Expired,
 }
 
 impl From<TokenVerifyError> for tonic::Status {
@@ -58,38 +89,83 @@ impl From<TokenVerifyError> for tonic::Status {
 
 #[cfg(test)]
 mod tests {
+    use time::Duration;
+
     use super::*;
 
     #[test]
     fn test_basic() {
-        let manager = TokenManager::new(b"secret".to_vec());
+        let manager = TagManager::new(b"secret".to_vec());
+        let expiration = (OffsetDateTime::now_utc() + Duration::minutes(10)).unix_timestamp();
 
-        let data = TokenData {
-            ..Default::default()
+        let flight_id = "id";
+        let price = Money {
+            currency_code: String::from("USD"),
+            units: 100,
+            nanos: 0,
         };
 
-        let token = manager.generate_token(data.clone());
-        let result = manager.verify_token(token).unwrap();
-
-        assert_eq!(data.flight_id, result.flight_id);
+        let token = manager.generate_tag(flight_id, &price, expiration);
+        manager
+            .verify_offer(flight_id, &price, expiration, &token)
+            .unwrap();
     }
 
     #[test]
     fn test_invalid_data() {
-        let manager = TokenManager::new(b"secret".to_vec());
+        let manager = TagManager::new(b"secret".to_vec());
+        let expiration = (OffsetDateTime::now_utc() + Duration::minutes(10)).unix_timestamp();
 
-        let data = TokenData {
-            ..Default::default()
-        };
+        let tag = manager.generate_tag(
+            "id",
+            &Money {
+                currency_code: String::from("USD"),
+                units: 100,
+                nanos: 0,
+            },
+            expiration,
+        );
 
-        let mut token = manager.generate_token(data.clone());
+        manager
+            .verify_offer(
+                "id",
+                &Money {
+                    currency_code: String::from("USD"),
+                    units: 10,
+                    nanos: 0,
+                },
+                expiration,
+                &tag,
+            )
+            .unwrap_err();
+    }
 
-        token.data = TokenData {
-            flight_id: String::from("idk"),
-            ..Default::default()
-        }
-        .encode_to_vec();
+    #[test]
+    fn test_expired() {
+        let manager = TagManager::new(b"secret".to_vec());
+        let expiration = (OffsetDateTime::now_utc() - Duration::minutes(10)).unix_timestamp();
 
-        let _ = manager.verify_token(token).unwrap_err();
+        let tag = manager.generate_tag(
+            "id",
+            &Money {
+                currency_code: String::from("USD"),
+                units: 100,
+                nanos: 0,
+            },
+            expiration,
+        );
+
+        manager
+            .verify_offer(
+                "id",
+                &Money {
+                    currency_code: String::from("USD"),
+                    units: 100,
+                    nanos: 0,
+                },
+                expiration,
+                &tag,
+            )
+            .unwrap_err();
     }
 }

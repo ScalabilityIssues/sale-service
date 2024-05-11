@@ -12,7 +12,7 @@ use tracing::Level;
 
 use crate::{
     dependencies::Dependencies,
-    sale::{tokens::TokenManager, SaleApp},
+    sale::{tokens::TagManager, SaleApp},
 };
 
 mod config;
@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Loaded configuration: {:?}", opt);
 
     let deps = Dependencies::new(deps_config)?;
-    let token_manager = TokenManager::new(opt.token_secret);
+    let token_manager = TagManager::new(opt.token_secret);
 
     // bind server socket
     let addr = SocketAddr::new(opt.ip, opt.port);
