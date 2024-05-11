@@ -7,11 +7,14 @@ use crate::proto::flightmngr::{self, flights_client::FlightsClient};
 use crate::proto::google::r#type::Money;
 use crate::proto::priceest::price_estimation_client::PriceEstimationClient;
 use crate::proto::priceest::{EstimatePriceRequest, FlightDetails};
+use crate::proto::ticketsrvc::tickets_client::TicketsClient;
+use crate::proto::ticketsrvc::{CreateTicketRequest, PassengerDetails, Ticket};
 
 #[derive(Clone, Debug)]
 pub struct Dependencies {
     pub flights: FlightsClient<Channel>,
     pub priceest: PriceEstimationClient<Channel>,
+    pub tickets: TicketsClient<Channel>,
 }
 
 impl From<Flight> for FlightDetails {
@@ -32,15 +35,17 @@ impl Dependencies {
         let DependencyConfig {
             flightmngr_url,
             priceest_url,
-            ..
+            ticketsrvc_url,
         } = dependency_urls;
 
         let flightmngr_channel = Channel::builder(flightmngr_url.try_into()?).connect_lazy();
         let priceest_channel = Channel::builder(priceest_url.try_into()?).connect_lazy();
+        let tickets_channel = Channel::builder(ticketsrvc_url.try_into()?).connect_lazy();
 
         Ok(Self {
             flights: FlightsClient::new(flightmngr_channel),
             priceest: PriceEstimationClient::new(priceest_channel),
+            tickets: TicketsClient::new(tickets_channel),
         })
     }
 
@@ -63,5 +68,25 @@ impl Dependencies {
             .ok_or(ApplicationError::unexpected_error(
                 "no price found in response from priceestimator",
             ))
+    }
+
+    pub async fn create_ticket(
+        &self,
+        flight_id: String,
+        passenger: PassengerDetails,
+    ) -> Result<Ticket> {
+        let ticket = Some(Ticket {
+            flight_id,
+            passenger: Some(passenger),
+            ..Default::default()
+        });
+
+        let r = self
+            .tickets
+            .clone()
+            .create_ticket(CreateTicketRequest { ticket })
+            .await?;
+
+        Ok(r.into_inner())
     }
 }

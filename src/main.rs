@@ -10,7 +10,10 @@ use tonic::transport::Server;
 use tower_http::trace;
 use tracing::Level;
 
-use crate::{dependencies::Dependencies, sale::SaleApp};
+use crate::{
+    dependencies::Dependencies,
+    sale::{tokens::TokenManager, SaleApp},
+};
 
 mod config;
 mod dependencies;
@@ -30,6 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Loaded configuration: {:?}", opt);
 
     let deps = Dependencies::new(deps_config)?;
+    let token_manager = TokenManager::new(opt.token_secret);
 
     // bind server socket
     let addr = SocketAddr::new(opt.ip, opt.port);
@@ -50,7 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         // enable grpc reflection
         .add_service(reflection)
-        .add_service(SaleServer::new(SaleApp::new(deps)))
+        .add_service(SaleServer::new(SaleApp::new(deps, token_manager)))
         // serve
         .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async {
             let _ = signal(SignalKind::terminate()).unwrap().recv().await;
