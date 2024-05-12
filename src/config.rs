@@ -29,7 +29,7 @@ pub struct Options {
     #[serde(default = "default_port")]
     pub port: u16,
     
-    pub token_secret: Vec<u8>,
+    pub token_secret: String,
 }
 
 #[derive(Deserialize, Debug)]

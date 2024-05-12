@@ -30,20 +30,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let opt = envy::from_env::<config::Options>()?;
     let deps_config = envy::from_env::<config::DependencyConfig>()?;
 
-    tracing::info!("Loaded configuration: {:?}", opt);
-
     let deps = Dependencies::new(deps_config)?;
-    let token_manager = TagManager::new(opt.token_secret);
+    let token_manager = TagManager::new(opt.token_secret.into_bytes());
+
+    // build reflection service
+    let reflection = tonic_reflection::server::Builder::configure()
+        .register_encoded_file_descriptor_set(proto::FILE_DESCRIPTOR_SET)
+        .with_service_name("salesvc.Sale")
+        .build()?;
 
     // bind server socket
     let addr = SocketAddr::new(opt.ip, opt.port);
     let listener = TcpListener::bind(addr).await?;
     tracing::info!("starting server on {}", addr);
-
-    let reflection = tonic_reflection::server::Builder::configure()
-        .register_encoded_file_descriptor_set(proto::FILE_DESCRIPTOR_SET)
-        .with_service_name("salesvc.Sale")
-        .build()?;
 
     Server::builder()
         // configure the server
