@@ -15,6 +15,8 @@ pub struct Dependencies {
     pub flights: FlightsClient<Channel>,
     pub priceest: PriceEstimationClient<Channel>,
     pub tickets: TicketsClient<Channel>,
+
+    fake_price: bool,
 }
 
 impl From<Flight> for FlightDetails {
@@ -36,6 +38,7 @@ impl Dependencies {
             flightmngr_url,
             priceest_url,
             ticketsrvc_url,
+            fake_price,
         } = dependency_urls;
 
         let flightmngr_channel = Channel::builder(flightmngr_url.try_into()?).connect_lazy();
@@ -46,6 +49,7 @@ impl Dependencies {
             flights: FlightsClient::new(flightmngr_channel),
             priceest: PriceEstimationClient::new(priceest_channel),
             tickets: TicketsClient::new(tickets_channel),
+            fake_price,
         })
     }
 
@@ -58,6 +62,14 @@ impl Dependencies {
     }
 
     pub async fn get_price_estimation(&self, flight: flightmngr::Flight) -> Result<Money> {
+        if self.fake_price {
+            return Ok(Money {
+                currency_code: "USD".to_string(),
+                units: 100,
+                nanos: 0,
+            });
+        }
+
         let request = EstimatePriceRequest {
             flight: Some(flight.into()),
         };

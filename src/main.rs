@@ -30,6 +30,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let opt = envy::from_env::<config::Options>()?;
     let deps_config = envy::from_env::<config::DependencyConfig>()?;
 
+    if deps_config.fake_price {
+        tracing::warn!("fake price estimation enabled");
+    }
+
     let deps = Dependencies::new(deps_config)?;
     let token_manager = TagManager::new(opt.token_secret.into_bytes());
 
