@@ -37,13 +37,13 @@ impl Dependencies {
         let DependencyConfig {
             flightmngr_url,
             priceest_url,
-            ticketsrvc_url,
+            ticketsvc_url,
             fake_price,
         } = dependency_urls;
 
         let flightmngr_channel = Channel::builder(flightmngr_url.try_into()?).connect_lazy();
         let priceest_channel = Channel::builder(priceest_url.try_into()?).connect_lazy();
-        let tickets_channel = Channel::builder(ticketsrvc_url.try_into()?).connect_lazy();
+        let tickets_channel = Channel::builder(ticketsvc_url.try_into()?).connect_lazy();
 
         Ok(Self {
             flights: FlightsClient::new(flightmngr_channel),

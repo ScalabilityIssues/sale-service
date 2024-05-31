@@ -18,8 +18,8 @@ fn default_priceest_url() -> String {
     "grpc://priceest:50051".to_string()
 }
 
-fn default_ticketsrvc_url() -> String {
-    "grpc://ticketsrvc:50051".to_string()
+fn default_ticketsvc_url() -> String {
+    "grpc://ticketsvc:50051".to_string()
 }
 
 #[derive(Deserialize, Debug)]
@@ -38,8 +38,8 @@ pub struct DependencyConfig {
     pub flightmngr_url: String,
     #[serde(default = "default_priceest_url")]
     pub priceest_url: String,
-    #[serde(default = "default_ticketsrvc_url")]
-    pub ticketsrvc_url: String,
+    #[serde(default = "default_ticketsvc_url")]
+    pub ticketsvc_url: String,
     #[serde(default)]
     pub fake_price: bool,
 }
