@@ -1,3 +1,5 @@
+use prost_types::Timestamp;
+use time::{OffsetDateTime, Time};
 use tonic::transport::Channel;
 
 use crate::config::DependencyConfig;
@@ -87,9 +89,15 @@ impl Dependencies {
         flight_id: String,
         passenger: PassengerDetails,
     ) -> Result<Ticket> {
+        let now = OffsetDateTime::now_utc();
+
         let ticket = Some(Ticket {
             flight_id,
             passenger: Some(passenger),
+            reservation_datetime: Some(Timestamp {
+                seconds: now.unix_timestamp(),
+                nanos: now.nanosecond() as i32,
+            }),
             ..Default::default()
         });
 
