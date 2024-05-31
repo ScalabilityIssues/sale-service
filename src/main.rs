@@ -10,16 +10,14 @@ use tonic::transport::Server;
 use tower_http::trace;
 use tracing::Level;
 
-use crate::{
-    dependencies::Dependencies,
-    sale::{tokens::TagManager, SaleApp},
-};
+use crate::{dependencies::Dependencies, sale::SaleApp, tokens::TagManager};
 
 mod config;
 mod dependencies;
 mod error;
 pub mod proto;
 mod sale;
+mod tokens;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

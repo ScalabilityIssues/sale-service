@@ -1,5 +1,3 @@
-pub mod tokens;
-
 use crate::error::ApplicationError;
 use crate::proto::flightmngr::{Flight, SearchFlightsRequest};
 use crate::proto::salesvc::sale_server::Sale;
@@ -12,8 +10,7 @@ use time::{Duration, OffsetDateTime};
 use tonic::{Request, Response, Status};
 
 use crate::dependencies::Dependencies;
-
-use self::tokens::TagManager;
+use crate::tokens::TagManager;
 
 pub struct SaleApp {
     deps: Dependencies,
@@ -34,7 +31,7 @@ async fn create_offer(
     flight: Flight,
     deps: &Dependencies,
     expiration: i64,
-    tm: &tokens::TagManager,
+    tm: &TagManager,
 ) -> Result<Offer, ApplicationError> {
     let price = deps.get_price_estimation(flight.clone()).await?;
     Ok(Offer {
