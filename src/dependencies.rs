@@ -1,10 +1,14 @@
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+
 use prost_types::Timestamp;
-use time::{OffsetDateTime, Time};
+use time::OffsetDateTime;
 use tonic::transport::Channel;
 
 use crate::config::DependencyConfig;
 use crate::error::{ApplicationError, Result};
-use crate::proto::flightmngr::Flight;
+use crate::proto::flightmngr::airports_client::AirportsClient;
+use crate::proto::flightmngr::ListAirportsRequest;
 use crate::proto::flightmngr::{self, flights_client::FlightsClient};
 use crate::proto::google::r#type::Money;
 use crate::proto::priceest::price_estimation_client::PriceEstimationClient;
@@ -14,22 +18,14 @@ use crate::proto::ticketsrvc::{CreateTicketRequest, PassengerDetails, Ticket};
 
 #[derive(Clone, Debug)]
 pub struct Dependencies {
-    pub flights: FlightsClient<Channel>,
-    pub priceest: PriceEstimationClient<Channel>,
-    pub tickets: TicketsClient<Channel>,
+    airports: AirportsClient<Channel>,
+    flights: FlightsClient<Channel>,
+    priceest: PriceEstimationClient<Channel>,
+    tickets: TicketsClient<Channel>,
+
+    airport_iata_map: Arc<RwLock<HashMap<String, String>>>,
 
     fake_price: bool,
-}
-
-impl From<Flight> for FlightDetails {
-    fn from(value: Flight) -> Self {
-        Self {
-            destination: value.destination_id,
-            source: value.origin_id,
-            departure_time: value.departure_time,
-            arrival_time: value.arrival_time,
-        }
-    }
 }
 
 impl Dependencies {
@@ -48,11 +44,42 @@ impl Dependencies {
         let tickets_channel = Channel::builder(ticketsvc_url.try_into()?).connect_lazy();
 
         Ok(Self {
+            airports: AirportsClient::new(flightmngr_channel.clone()),
             flights: FlightsClient::new(flightmngr_channel),
             priceest: PriceEstimationClient::new(priceest_channel),
             tickets: TicketsClient::new(tickets_channel),
             fake_price,
+            airport_iata_map: Default::default(),
         })
+    }
+
+    async fn get_airport_iata(&self, airport_id: &str) -> Result<String> {
+        if let Some(iata) = self.airport_iata_map.read().unwrap().get(airport_id) {
+            return Ok(iata.clone());
+        }
+
+        let r = self
+            .airports
+            .clone()
+            .list_airports(ListAirportsRequest { show_deleted: true })
+            .await?
+            .into_inner();
+
+        for airport in r.airports {
+            self.airport_iata_map
+                .write()
+                .unwrap()
+                .insert(airport.id.clone(), airport.iata.clone());
+        }
+
+        self.airport_iata_map
+            .read()
+            .unwrap()
+            .get(airport_id)
+            .cloned()
+            .ok_or(ApplicationError::unexpected_error(
+                "airport not found in response from airports service",
+            ))
     }
 
     pub async fn search_flights(
@@ -73,7 +100,12 @@ impl Dependencies {
         }
 
         let request = EstimatePriceRequest {
-            flight: Some(flight.into()),
+            flight: Some(FlightDetails {
+                destination: self.get_airport_iata(&flight.destination_id).await?,
+                source: self.get_airport_iata(&flight.origin_id).await?,
+                departure_time: flight.departure_time,
+                arrival_time: flight.arrival_time,
+            }),
         };
         let r = self.priceest.clone().estimate_price(request).await?;
 
